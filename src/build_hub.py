@@ -1,0 +1,180 @@
+"""aff-hub のindex.html / daily / feed.json をビルド。
+
+入力:
+  ~/Desktop/pin-money/data/products/{date}.json
+  ~/MONETIZATION_IDS.json
+出力:
+  public/index.html
+  public/daily/{date}.html
+  public/feed.json
+  public/assets/style.css
+"""
+from __future__ import annotations
+
+import html
+import json
+import sys
+from datetime import datetime, timezone, timedelta
+from pathlib import Path
+
+sys.path.append(str(Path(__file__).resolve().parent.parent))
+from src.utils import (DATA, JST, PUBLIC, jst_today, load_config,
+                       load_monetization_ids, setup_logger)
+
+log = setup_logger("build_hub")
+
+CSS = """
+* { box-sizing: border-box; margin: 0; padding: 0; -webkit-font-smoothing: antialiased; }
+html, body { background: #0d0d0f; color: #f5f5f7; font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Helvetica Neue", sans-serif; }
+.wrap { max-width: 520px; margin: 0 auto; padding: 32px 20px 80px; }
+.profile { text-align: center; padding: 16px 0 28px; }
+.profile .avatar { width: 84px; height: 84px; border-radius: 50%; margin: 0 auto 14px; background: linear-gradient(135deg, #ff7a00, #ff3d77); display: flex; align-items: center; justify-content: center; font-size: 32px; }
+.profile h1 { font-size: 22px; font-weight: 700; }
+.profile .handle { color: #999; font-size: 14px; margin-top: 4px; }
+.profile .tagline { color: #ccc; font-size: 13px; margin-top: 10px; line-height: 1.6; }
+.section { margin: 28px 0 10px; font-size: 13px; color: #8a8a8e; letter-spacing: 0.1em; text-transform: uppercase; }
+.row { display: flex; flex-direction: column; gap: 10px; }
+.btn { display: block; padding: 14px 18px; background: #18181b; border: 1px solid #2a2a2f; border-radius: 14px; color: #f5f5f7; text-decoration: none; font-weight: 600; transition: transform .12s, border-color .12s; }
+.btn:hover { transform: translateY(-1px); border-color: #4a4a52; }
+.btn .ico { display: inline-block; margin-right: 10px; }
+.card { background: #15151a; border: 1px solid #2a2a2f; border-radius: 14px; padding: 14px; display: flex; gap: 12px; align-items: center; color: inherit; text-decoration: none; transition: transform .12s; }
+.card:hover { transform: translateY(-1px); }
+.card img { width: 64px; height: 64px; border-radius: 10px; object-fit: cover; background: #2a2a2f; flex-shrink: 0; }
+.card .meta { flex: 1; min-width: 0; }
+.card .ttl { font-size: 14px; font-weight: 600; color: #f5f5f7; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.card .price { color: #ff7a00; font-size: 13px; font-weight: 700; margin-top: 4px; }
+.foot { text-align: center; margin-top: 40px; color: #5a5a62; font-size: 11px; line-height: 1.7; }
+.foot a { color: #5a5a62; }
+"""
+
+
+def _truncate(s: str, n: int) -> str:
+    return s if len(s) <= n else s[: n - 1].rstrip() + "…"
+
+
+def load_latest_products(cfg: dict) -> list[dict]:
+    pdir = Path(cfg["data_sources"]["rakuten_products_dir"])
+    if not pdir.exists():
+        log.warning(f"no rakuten products dir: {pdir}")
+        return []
+    files = sorted(pdir.glob("*.json"))
+    if not files:
+        return []
+    latest = json.loads(files[-1].read_text(encoding="utf-8"))
+    out: list[dict] = []
+    for slug, g in latest.get("genres", {}).items():
+        for it in g.get("items", []):
+            it["_genre"] = slug
+            it["_genre_name"] = g.get("name", slug)
+            out.append(it)
+    # レビュー件数で並べ替え（人気優先）
+    out.sort(key=lambda x: x.get("review_count", 0), reverse=True)
+    return out
+
+
+def render_card(it: dict) -> str:
+    img = (it.get("images") or [""])[0]
+    aff = it.get("affiliate_url") or it.get("url") or "#"
+    title = html.escape(_truncate(it.get("name", ""), 70))
+    price = it.get("price", 0)
+    price_str = f"¥{int(price):,}" if price else ""
+    return f'''<a class="card" href="{html.escape(aff)}" target="_blank" rel="nofollow sponsored noopener">
+  <img src="{html.escape(img)}" loading="lazy" alt="">
+  <div class="meta">
+    <div class="ttl">{title}</div>
+    <div class="price">{price_str}</div>
+  </div>
+</a>'''
+
+
+def render_social_btn(s: dict) -> str:
+    url = s.get("url") or ""
+    if not url:
+        return ""
+    name = html.escape(s.get("name", ""))
+    icon = s.get("icon", "")
+    return f'<a class="btn" href="{html.escape(url)}" target="_blank" rel="noopener"><span class="ico">{icon}</span>{name}</a>'
+
+
+def render_page(cfg: dict, products: list[dict], *, daily_date: str | None = None) -> str:
+    p = cfg["profile"]
+    site = cfg["site"]
+    featured = products[: int(cfg.get("featured_count", 10))]
+    cards = "\n".join(render_card(it) for it in featured)
+    socials = "\n".join(filter(None, [render_social_btn(s) for s in cfg.get("social", [])]))
+    today = daily_date or jst_today()
+    daily_link = f'<a class="btn" href="/aff-hub/daily/{today}.html">📅 今日の推し全商品（{today}）</a>'
+    title = html.escape(site.get("title", "aff-hub"))
+    return f'''<!DOCTYPE html>
+<html lang="ja"><head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="referrer" content="no-referrer-when-downgrade">
+<title>{title}</title>
+<meta name="description" content="{html.escape(p.get('tagline',''))}">
+<link rel="stylesheet" href="/aff-hub/assets/style.css">
+</head><body>
+<div class="wrap">
+  <div class="profile">
+    <div class="avatar">🐷→💰</div>
+    <h1>{html.escape(p.get('name',''))}</h1>
+    <div class="handle">{html.escape(p.get('handle',''))}</div>
+    <div class="tagline">{html.escape(p.get('tagline',''))}</div>
+  </div>
+
+  <div class="section">▼ SNS</div>
+  <div class="row">{socials}</div>
+
+  <div class="section">▼ 今日の推し</div>
+  <div class="row">{daily_link}{cards}</div>
+
+  <div class="foot">
+    リンクは楽天市場アフィリエイトを含みます。<br>
+    Last updated {html.escape(today)} JST · <a href="https://github.com/{html.escape(site.get('github_user',''))}/{html.escape(site.get('repo',''))}">source</a>
+  </div>
+</div>
+</body></html>'''
+
+
+def render_feed(cfg: dict, products: list[dict]) -> str:
+    payload = {
+        "updated_at": datetime.now(JST).isoformat(),
+        "items": [
+            {
+                "title": it.get("name", ""),
+                "url": it.get("affiliate_url") or it.get("url"),
+                "image": (it.get("images") or [None])[0],
+                "price": it.get("price", 0),
+                "review_count": it.get("review_count", 0),
+                "genre": it.get("_genre", ""),
+            }
+            for it in products[:30]
+        ],
+    }
+    return json.dumps(payload, ensure_ascii=False, indent=2)
+
+
+def main() -> int:
+    cfg = load_config()
+    products = load_latest_products(cfg)
+    if not products:
+        log.error("no products to render. Run pin-money first.")
+        return 1
+    log.info(f"loaded {len(products)} products")
+
+    PUBLIC.mkdir(parents=True, exist_ok=True)
+    (PUBLIC / "assets").mkdir(parents=True, exist_ok=True)
+    (PUBLIC / "daily").mkdir(parents=True, exist_ok=True)
+
+    (PUBLIC / "assets" / "style.css").write_text(CSS, encoding="utf-8")
+    today = jst_today()
+    (PUBLIC / "index.html").write_text(render_page(cfg, products), encoding="utf-8")
+    (PUBLIC / "daily" / f"{today}.html").write_text(
+        render_page(cfg, products, daily_date=today), encoding="utf-8")
+    (PUBLIC / "feed.json").write_text(render_feed(cfg, products), encoding="utf-8")
+    log.info(f"wrote public/ (today={today})")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

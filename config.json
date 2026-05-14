@@ -1,0 +1,31 @@
+{
+  "site": {
+    "title": "AIで稼ぐ高校生 / 厳選アフィハブ",
+    "subtitle": "毎日更新の楽天売れ筋＆便利グッズ",
+    "github_user": "nayo126",
+    "repo": "aff-hub",
+    "base_url": "https://nayo126.github.io/aff-hub"
+  },
+  "profile": {
+    "name": "ささき",
+    "handle": "@yoton_ai.student.sasaki",
+    "tagline": "高校生×AI×副業｜楽天アフィで月¥1万→月¥30万を目指す記録",
+    "avatar": "/assets/avatar.png"
+  },
+  "social": [
+    {"name": "Threads", "url": "https://www.threads.com/@yoton_ai.student.sasaki", "icon": "💬"},
+    {"name": "Pinterest", "url": "https://www.pinterest.com/yoton_ai_sasaki/", "icon": "📌"},
+    {"name": "Bluesky", "url": "", "icon": "🦋"},
+    {"name": "Misskey", "url": "", "icon": "🌐"},
+    {"name": "YouTube", "url": "", "icon": "📺"},
+    {"name": "はてなブログ", "url": "", "icon": "📝"}
+  ],
+  "data_sources": {
+    "rakuten_products_dir": "/Users/tsukaking/Desktop/pin-money/data/products"
+  },
+  "featured_count": 10,
+  "claude": {
+    "command": "claude",
+    "max_retries": 5
+  }
+}
