@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-PUBLIC = ROOT / "public"
+PUBLIC = ROOT / "docs"  # GitHub Pages allows /docs (not /public)
 DATA = ROOT / "data"
 LOGS = ROOT / "logs"
 JST = timezone(timedelta(hours=9))
