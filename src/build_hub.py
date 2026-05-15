@@ -232,7 +232,51 @@ def render_page(cfg: dict, products: list[dict], *, daily_date: str | None = Non
 </body></html>'''
 
 
-def render_sitemap(cfg: dict) -> str:
+def render_genre_page(cfg: dict, genre_slug: str, genre_name: str,
+                      products: list[dict]) -> str:
+    """ジャンル別ページ。SEO狙いで個別URLを持たせる。"""
+    site = cfg["site"]
+    base_url = site.get("base_url", "").rstrip("/")
+    cards = "\n".join(render_card(it) for it in products[:30])
+    title = html.escape(f"{genre_name} 楽天で本当に売れてる物 {jst_today()}")
+    desc = html.escape(f"楽天で今売れている{genre_name}カテゴリの商品を毎日更新。レビュー件数の多い順。")
+    canonical = f"{base_url}/genre/{genre_slug}.html"
+    og_image = (products[0].get("images") or [""])[0] if products else ""
+    jsonld = render_jsonld_products(products, base_url)
+    return f'''<!DOCTYPE html>
+<html lang="ja"><head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{title}</title>
+<meta name="description" content="{desc}">
+<meta name="keywords" content="楽天,{html.escape(genre_name)},おすすめ,人気,ランキング,レビュー">
+<link rel="canonical" href="{canonical}">
+<meta property="og:type" content="website">
+<meta property="og:title" content="{title}">
+<meta property="og:description" content="{desc}">
+<meta property="og:url" content="{canonical}">
+<meta property="og:image" content="{html.escape(og_image)}">
+<link rel="stylesheet" href="/aff-hub/assets/style.css">
+<script type="application/ld+json">{jsonld}</script>
+</head><body>
+<div class="wrap">
+  <div class="profile">
+    <div class="avatar">🛍️</div>
+    <h1>{html.escape(genre_name)}</h1>
+    <div class="tagline">楽天で今売れている{html.escape(genre_name)} · 毎日自動更新</div>
+  </div>
+  <div class="section">▼ 売れ筋（レビュー多い順）</div>
+  <div class="row">{cards}</div>
+  <div class="foot">
+    <a href="/aff-hub/">← トップに戻る</a><br>
+    リンクは楽天市場アフィリエイトを含みます。<br>
+    Last updated {jst_today()} JST
+  </div>
+</div>
+</body></html>'''
+
+
+def render_sitemap(cfg: dict, genre_slugs: list[str]) -> str:
     base = cfg["site"].get("base_url", "").rstrip("/")
     today = jst_today()
     daily_dir = PUBLIC / "daily"
@@ -242,6 +286,8 @@ def render_sitemap(cfg: dict) -> str:
     if daily_dir.exists():
         for f in sorted(daily_dir.glob("*.html")):
             urls.append(f"{base}/daily/{f.name}")
+    for slug in genre_slugs:
+        urls.append(f"{base}/genre/{slug}.html")
     items = "\n".join(
         f"  <url><loc>{u}</loc><lastmod>{today}</lastmod><changefreq>daily</changefreq></url>"
         for u in urls
@@ -350,14 +396,26 @@ def main() -> int:
     PUBLIC.mkdir(parents=True, exist_ok=True)
     (PUBLIC / "assets").mkdir(parents=True, exist_ok=True)
     (PUBLIC / "daily").mkdir(parents=True, exist_ok=True)
+    (PUBLIC / "genre").mkdir(parents=True, exist_ok=True)
 
     (PUBLIC / "assets" / "style.css").write_text(CSS, encoding="utf-8")
     today = jst_today()
     (PUBLIC / "index.html").write_text(render_page(cfg, products), encoding="utf-8")
     (PUBLIC / "daily" / f"{today}.html").write_text(
         render_page(cfg, products, daily_date=today), encoding="utf-8")
+    # ジャンル別ページ
+    by_genre: dict[str, list[dict]] = {}
+    genre_names: dict[str, str] = {}
+    for p in products:
+        slug = p.get("_genre", "misc")
+        genre_names[slug] = p.get("_genre_name", slug)
+        by_genre.setdefault(slug, []).append(p)
+    for slug, items in by_genre.items():
+        (PUBLIC / "genre" / f"{slug}.html").write_text(
+            render_genre_page(cfg, slug, genre_names[slug], items),
+            encoding="utf-8")
     (PUBLIC / "feed.json").write_text(render_feed(cfg, products), encoding="utf-8")
-    (PUBLIC / "sitemap.xml").write_text(render_sitemap(cfg), encoding="utf-8")
+    (PUBLIC / "sitemap.xml").write_text(render_sitemap(cfg, list(by_genre.keys())), encoding="utf-8")
     (PUBLIC / "robots.txt").write_text(render_robots(cfg), encoding="utf-8")
     # 404.html for GitHub Pages (redirect to index)
     (PUBLIC / "404.html").write_text(
