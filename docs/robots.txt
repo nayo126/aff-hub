@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://nayo126.github.io/aff-hub/sitemap.xml

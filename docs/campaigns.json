@@ -1,0 +1,37 @@
+{
+  "updated_at": "2026-05-16T01:08:58.595119+09:00",
+  "campaigns": [
+    {
+      "id": "timesale-daily",
+      "name": "24時間限定タイムセール",
+      "start_jst": "2026-05-16 10:00",
+      "end_jst": "2026-05-17 09:59",
+      "summary": "毎朝10時更新の日替わり特価セール。ショップ最安値より安価な商品が特別価格で登場。",
+      "url": "https://event.rakuten.co.jp/bargain/timesale/"
+    },
+    {
+      "id": "kattara-bai-20260516",
+      "name": "勝ったら倍（楽天イーグルス・ヴィッセル神戸）",
+      "start_jst": "2026-05-16 00:00",
+      "end_jst": "2026-05-16 23:59",
+      "summary": "イーグルス・ヴィッセル神戸勝利翌日に全ショップポイント2〜3倍。エントリー＆1,000円以上購入が条件。",
+      "url": "https://event.rakuten.co.jp/campaign/sports/"
+    },
+    {
+      "id": "point-day-0-5-next",
+      "name": "5と0のつく日ポイント4倍",
+      "start_jst": "2026-05-20 00:00",
+      "end_jst": "2026-05-20 23:59",
+      "summary": "毎月5・10・15・20・25・30日に楽天カード利用でポイント4倍。エントリー必要。月上限1,000pt。",
+      "url": "https://event.rakuten.co.jp/campaign/card/pointday/"
+    },
+    {
+      "id": "super-deal",
+      "name": "楽天スーパーDEAL",
+      "start_jst": null,
+      "end_jst": null,
+      "summary": "楽天会員限定。対象商品購入で最大50%ポイント還元。毎日更新・エントリー不要。",
+      "url": "https://event.rakuten.co.jp/superdeal/"
+    }
+  ]
+}

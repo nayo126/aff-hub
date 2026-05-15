@@ -96,23 +96,81 @@ def render_social_btn(s: dict) -> str:
     return f'<a class="btn" href="{html.escape(url)}" target="_blank" rel="noopener"><span class="ico">{icon}</span>{name}</a>'
 
 
+def render_jsonld_products(products: list[dict], base_url: str) -> str:
+    items = []
+    for i, it in enumerate(products[:20], start=1):
+        img = (it.get("images") or [""])[0]
+        aff = it.get("affiliate_url") or it.get("url") or ""
+        price = it.get("price", 0)
+        rc = it.get("review_count", 0)
+        ra = it.get("review_average", 0)
+        product = {
+            "@type": "ListItem",
+            "position": i,
+            "item": {
+                "@type": "Product",
+                "name": (it.get("name") or "")[:120],
+                "image": img,
+                "url": aff,
+                "offers": {
+                    "@type": "Offer",
+                    "price": str(int(price)) if price else "0",
+                    "priceCurrency": "JPY",
+                    "availability": "https://schema.org/InStock",
+                    "url": aff,
+                },
+            },
+        }
+        if rc and ra:
+            product["item"]["aggregateRating"] = {
+                "@type": "AggregateRating",
+                "ratingValue": str(ra),
+                "reviewCount": str(rc),
+            }
+        items.append(product)
+    payload = {
+        "@context": "https://schema.org",
+        "@type": "ItemList",
+        "itemListElement": items,
+    }
+    return json.dumps(payload, ensure_ascii=False)
+
+
 def render_page(cfg: dict, products: list[dict], *, daily_date: str | None = None) -> str:
     p = cfg["profile"]
     site = cfg["site"]
+    base_url = site.get("base_url", "")
     featured = products[: int(cfg.get("featured_count", 10))]
     cards = "\n".join(render_card(it) for it in featured)
     socials = "\n".join(filter(None, [render_social_btn(s) for s in cfg.get("social", [])]))
     today = daily_date or jst_today()
     daily_link = f'<a class="btn" href="/aff-hub/daily/{today}.html">📅 今日の推し全商品（{today}）</a>'
     title = html.escape(site.get("title", "aff-hub"))
+    desc = html.escape(p.get("tagline", ""))
+    canonical = f"{base_url}/" if not daily_date else f"{base_url}/daily/{daily_date}.html"
+    og_image = (featured[0].get("images") or [""])[0] if featured else ""
+    jsonld = render_jsonld_products(products, base_url)
     return f'''<!DOCTYPE html>
 <html lang="ja"><head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="referrer" content="no-referrer-when-downgrade">
 <title>{title}</title>
-<meta name="description" content="{html.escape(p.get('tagline',''))}">
+<meta name="description" content="{desc}">
+<meta name="keywords" content="楽天,アフィリエイト,おすすめ,セール,ランキング,お買い物マラソン,SUPER SALE">
+<meta name="author" content="{html.escape(p.get('name',''))}">
+<link rel="canonical" href="{canonical}">
+<meta property="og:type" content="website">
+<meta property="og:title" content="{title}">
+<meta property="og:description" content="{desc}">
+<meta property="og:url" content="{canonical}">
+<meta property="og:image" content="{html.escape(og_image)}">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="{title}">
+<meta name="twitter:description" content="{desc}">
+<meta name="twitter:image" content="{html.escape(og_image)}">
 <link rel="stylesheet" href="/aff-hub/assets/style.css">
+<script type="application/ld+json">{jsonld}</script>
 </head><body>
 <div class="wrap">
   <div class="profile">
@@ -134,6 +192,35 @@ def render_page(cfg: dict, products: list[dict], *, daily_date: str | None = Non
   </div>
 </div>
 </body></html>'''
+
+
+def render_sitemap(cfg: dict) -> str:
+    base = cfg["site"].get("base_url", "").rstrip("/")
+    today = jst_today()
+    daily_dir = PUBLIC / "daily"
+    urls = [
+        f"{base}/",
+    ]
+    if daily_dir.exists():
+        for f in sorted(daily_dir.glob("*.html")):
+            urls.append(f"{base}/daily/{f.name}")
+    items = "\n".join(
+        f"  <url><loc>{u}</loc><lastmod>{today}</lastmod><changefreq>daily</changefreq></url>"
+        for u in urls
+    )
+    return f'''<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+{items}
+</urlset>'''
+
+
+def render_robots(cfg: dict) -> str:
+    base = cfg["site"].get("base_url", "").rstrip("/")
+    return f"""User-agent: *
+Allow: /
+
+Sitemap: {base}/sitemap.xml
+"""
 
 
 def render_feed(cfg: dict, products: list[dict]) -> str:
@@ -172,6 +259,13 @@ def main() -> int:
     (PUBLIC / "daily" / f"{today}.html").write_text(
         render_page(cfg, products, daily_date=today), encoding="utf-8")
     (PUBLIC / "feed.json").write_text(render_feed(cfg, products), encoding="utf-8")
+    (PUBLIC / "sitemap.xml").write_text(render_sitemap(cfg), encoding="utf-8")
+    (PUBLIC / "robots.txt").write_text(render_robots(cfg), encoding="utf-8")
+    # 404.html for GitHub Pages (redirect to index)
+    (PUBLIC / "404.html").write_text(
+        '<!DOCTYPE html><meta http-equiv="refresh" content="0;url=/aff-hub/">'
+        '<title>Redirecting...</title><a href="/aff-hub/">Go home</a>',
+        encoding="utf-8")
     log.info(f"wrote public/ (today={today})")
     return 0
 
