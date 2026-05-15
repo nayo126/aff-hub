@@ -91,10 +91,10 @@ def load_campaigns() -> list[dict]:
 
 
 def render_campaign_row(c: dict) -> str:
-    name = html.escape(c.get("name", ""))
-    summary = html.escape(_truncate(c.get("summary", ""), 80))
-    url = html.escape(c.get("url", "#"))
-    end = html.escape(c.get("end_jst", ""))
+    name = html.escape(c.get("name") or "")
+    summary = html.escape(_truncate(c.get("summary") or "", 80))
+    url = html.escape(c.get("url") or "#")
+    end = html.escape(c.get("end_jst") or "")
     return f'''<a class="card camp" href="{url}" target="_blank" rel="nofollow sponsored noopener">
   <div class="meta">
     <div class="ttl">🔥 {name}</div>
