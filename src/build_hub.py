@@ -14,6 +14,7 @@ from __future__ import annotations
 import html
 import json
 import sys
+import urllib.request
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
@@ -45,6 +46,10 @@ html, body { background: #0d0d0f; color: #f5f5f7; font-family: -apple-system, Bl
 .card .price { color: #ff7a00; font-size: 13px; font-weight: 700; margin-top: 4px; }
 .foot { text-align: center; margin-top: 40px; color: #5a5a62; font-size: 11px; line-height: 1.7; }
 .foot a { color: #5a5a62; }
+.card.camp { background: linear-gradient(135deg, #1f1410, #2a1f15); border-color: #ff7a00; flex-direction: column; align-items: stretch; gap: 4px; }
+.card.camp .ttl { color: #ffcfa3; }
+.card.camp .campsum { color: #c9c4be; font-size: 12px; line-height: 1.5; margin-top: 4px; }
+.card.camp .campend { color: #ff7a00; font-size: 11px; margin-top: 4px; font-weight: 600; }
 """
 
 
@@ -70,6 +75,33 @@ def load_latest_products(cfg: dict) -> list[dict]:
     # レビュー件数で並べ替え（人気優先）
     out.sort(key=lambda x: x.get("review_count", 0), reverse=True)
     return out
+
+
+def load_campaigns() -> list[dict]:
+    """rakuten-radar が書いた campaigns.json を読む。"""
+    p = PUBLIC / "campaigns.json"
+    if not p.exists():
+        return []
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+        return data.get("campaigns") or []
+    except Exception as e:
+        log.warning(f"failed to load campaigns.json: {e}")
+        return []
+
+
+def render_campaign_row(c: dict) -> str:
+    name = html.escape(c.get("name", ""))
+    summary = html.escape(_truncate(c.get("summary", ""), 80))
+    url = html.escape(c.get("url", "#"))
+    end = html.escape(c.get("end_jst", ""))
+    return f'''<a class="card camp" href="{url}" target="_blank" rel="nofollow sponsored noopener">
+  <div class="meta">
+    <div class="ttl">🔥 {name}</div>
+    <div class="campsum">{summary}</div>
+    <div class="campend">〜 {end}</div>
+  </div>
+</a>'''
 
 
 def render_card(it: dict) -> str:
@@ -143,6 +175,12 @@ def render_page(cfg: dict, products: list[dict], *, daily_date: str | None = Non
     featured = products[: int(cfg.get("featured_count", 10))]
     cards = "\n".join(render_card(it) for it in featured)
     socials = "\n".join(filter(None, [render_social_btn(s) for s in cfg.get("social", [])]))
+    campaigns = load_campaigns()
+    camp_rows = "\n".join(render_campaign_row(c) for c in campaigns[:5]) if campaigns else ""
+    camp_section = (
+        f'\n  <div class="section">▼ 開催中のキャンペーン</div>\n  <div class="row">{camp_rows}</div>\n'
+        if camp_rows else ""
+    )
     today = daily_date or jst_today()
     daily_link = f'<a class="btn" href="/aff-hub/daily/{today}.html">📅 今日の推し全商品（{today}）</a>'
     title = html.escape(site.get("title", "aff-hub"))
@@ -182,7 +220,7 @@ def render_page(cfg: dict, products: list[dict], *, daily_date: str | None = Non
 
   <div class="section">▼ SNS</div>
   <div class="row">{socials}</div>
-
+{camp_section}
   <div class="section">▼ 今日の推し</div>
   <div class="row">{daily_link}{cards}</div>
 
@@ -241,6 +279,66 @@ def render_feed(cfg: dict, products: list[dict]) -> str:
     return json.dumps(payload, ensure_ascii=False, indent=2)
 
 
+THREADS_QUEUE_URL = "https://threads-api-app.onrender.com/api/claude-posts/bulk"
+
+
+def push_to_threads_queue(cfg: dict, products: list[dict]) -> None:
+    """その日の daily ページ URL とトップ3を Threads キューに投入。"""
+    if not products:
+        return
+    state_file = DATA / "threads_pushed.json"
+    today = jst_today()
+    pushed: dict = {}
+    if state_file.exists():
+        try:
+            pushed = json.loads(state_file.read_text(encoding="utf-8"))
+        except Exception:
+            pushed = {}
+    if pushed.get(today):
+        log.info(f"already pushed to threads queue for {today}")
+        return
+
+    base = cfg["site"].get("base_url", "").rstrip("/")
+    daily_url = f"{base}/daily/{today}.html"
+    top = products[:3]
+    lines = [f"楽天で今売れてる物 ({today})", ""]
+    for i, p in enumerate(top, 1):
+        name = (p.get("name") or "")[:30]
+        price = p.get("price", 0)
+        lines.append(f"{i}位 {name}")
+        if price:
+            lines.append(f"   ¥{int(price):,}")
+    lines.append("")
+    lines.append(f"全商品→ {daily_url}")
+    text = "\n".join(lines)
+    # Threads 200字制限
+    if len(text) > 480:
+        text = text[:475] + "…"
+
+    payload = {
+        "items": [{
+            "texts": [text],
+            "label": f"aff-hub_daily_{today}",
+            "type": "楽天アフィ",
+            "format": "ランキング型",
+        }]
+    }
+    body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    req = urllib.request.Request(
+        THREADS_QUEUE_URL, data=body, method="POST",
+        headers={"Content-Type": "application/json", "Accept": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            resp = r.read().decode("utf-8", errors="replace")
+            log.info(f"threads queue rc={r.status}  body={resp[:120]}")
+        pushed[today] = True
+        state_file.write_text(json.dumps(pushed, ensure_ascii=False, indent=2),
+                              encoding="utf-8")
+    except Exception as e:
+        log.warning(f"threads queue push failed (will retry next build): {e}")
+
+
 def main() -> int:
     cfg = load_config()
     products = load_latest_products(cfg)
@@ -267,6 +365,7 @@ def main() -> int:
         '<title>Redirecting...</title><a href="/aff-hub/">Go home</a>',
         encoding="utf-8")
     log.info(f"wrote public/ (today={today})")
+    push_to_threads_queue(cfg, products)
     return 0
 
 

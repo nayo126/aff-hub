@@ -20,3 +20,7 @@ html, body { background: #0d0d0f; color: #f5f5f7; font-family: -apple-system, Bl
 .card .price { color: #ff7a00; font-size: 13px; font-weight: 700; margin-top: 4px; }
 .foot { text-align: center; margin-top: 40px; color: #5a5a62; font-size: 11px; line-height: 1.7; }
 .foot a { color: #5a5a62; }
+.card.camp { background: linear-gradient(135deg, #1f1410, #2a1f15); border-color: #ff7a00; flex-direction: column; align-items: stretch; gap: 4px; }
+.card.camp .ttl { color: #ffcfa3; }
+.card.camp .campsum { color: #c9c4be; font-size: 12px; line-height: 1.5; margin-top: 4px; }
+.card.camp .campend { color: #ff7a00; font-size: 11px; margin-top: 4px; font-weight: 600; }
