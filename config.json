@@ -27,5 +27,11 @@
   "claude": {
     "command": "claude",
     "max_retries": 5
+  },
+  "verification": {
+    "_README": "Search Consoleで発行されたコードを貼る。空欄なら何も書かない。Google: googleXXXX.html の XXXX部分。Bing: <user>...</user> の中身。Yandex: yandex_XXXX.html の XXXX部分。",
+    "google_site_verification": "",
+    "bing_msvalidate": "",
+    "yandex_verification": ""
   }
 }

@@ -78,16 +78,29 @@ def load_latest_products(cfg: dict) -> list[dict]:
 
 
 def load_campaigns() -> list[dict]:
-    """rakuten-radar が書いた campaigns.json を読む。"""
+    """rakuten-radar が書いた campaigns.json を読む。期限切れは除外。"""
     p = PUBLIC / "campaigns.json"
     if not p.exists():
         return []
     try:
         data = json.loads(p.read_text(encoding="utf-8"))
-        return data.get("campaigns") or []
+        raw = data.get("campaigns") or []
     except Exception as e:
         log.warning(f"failed to load campaigns.json: {e}")
         return []
+    now = datetime.now(JST)
+    active = []
+    for c in raw:
+        end = c.get("end_jst") or ""
+        if end:
+            try:
+                dt = datetime.strptime(end, "%Y-%m-%d %H:%M").replace(tzinfo=JST)
+                if dt < now:
+                    continue
+            except (ValueError, TypeError):
+                pass
+        active.append(c)
+    return active
 
 
 def render_campaign_row(c: dict) -> str:
@@ -307,6 +320,61 @@ Sitemap: {base}/sitemap.xml
 """
 
 
+def render_rss(cfg: dict, products: list[dict], campaigns: list[dict]) -> str:
+    site = cfg["site"]
+    base = site.get("base_url", "").rstrip("/")
+    title = html.escape(site.get("title", "aff-hub"))
+    desc = html.escape(cfg.get("profile", {}).get("tagline", ""))
+    now_rfc = datetime.now(JST).strftime("%a, %d %b %Y %H:%M:%S +0900")
+    items_xml = []
+    # 商品上位15件
+    for p in products[:15]:
+        name = html.escape((p.get("name") or "")[:120])
+        url = html.escape(p.get("affiliate_url") or p.get("url") or base)
+        img = (p.get("images") or [""])[0]
+        price = p.get("price", 0)
+        guid = html.escape(p.get("code") or url)
+        desc_text = html.escape(
+            f"楽天で売れてる「{p.get('_genre_name', '')}」: {p.get('name', '')[:80]} ¥{int(price):,}"
+            if price else (p.get("name") or "")
+        )
+        img_tag = f'<enclosure url="{html.escape(img)}" type="image/jpeg"/>' if img else ""
+        items_xml.append(f"""<item>
+  <title>{name}</title>
+  <link>{url}</link>
+  <guid isPermaLink="false">{guid}</guid>
+  <description>{desc_text}</description>
+  <pubDate>{now_rfc}</pubDate>
+  {img_tag}
+</item>""")
+    # キャンペーン
+    for c in campaigns[:5]:
+        cname = html.escape(c.get("name") or "")
+        curl = html.escape(c.get("url") or base)
+        csum = html.escape(c.get("summary") or "")
+        guid = html.escape(c.get("id") or curl)
+        items_xml.append(f"""<item>
+  <title>🔥 {cname}</title>
+  <link>{curl}</link>
+  <guid isPermaLink="false">campaign:{guid}</guid>
+  <description>{csum}</description>
+  <pubDate>{now_rfc}</pubDate>
+</item>""")
+    items = "\n".join(items_xml)
+    return f"""<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+<channel>
+<title>{title}</title>
+<link>{base}/</link>
+<description>{desc}</description>
+<language>ja</language>
+<lastBuildDate>{now_rfc}</lastBuildDate>
+<atom:link href="{base}/rss.xml" rel="self" type="application/rss+xml"/>
+{items}
+</channel>
+</rss>"""
+
+
 def render_feed(cfg: dict, products: list[dict]) -> str:
     payload = {
         "updated_at": datetime.now(JST).isoformat(),
@@ -337,6 +405,53 @@ def _generate_indexnow_key() -> str:
     """初回のみ key を生成、以後は永続。"""
     import secrets
     return secrets.token_hex(32)  # 64桁hex
+
+
+def write_verification_files(cfg: dict) -> None:
+    """各種Webmaster Tools の owner verification ファイルを生成。
+
+    config.json の verification セクションに以下を入れると自動で docs/ に書く:
+      "verification": {
+        "google_site_verification": "google0123...html の中身 or filename",
+        "bing_msvalidate": "<BingsiteAuth>...</BingsiteAuth>",
+        "yandex_verification": "yandex_xxx.html の中身"
+      }
+    本人がSearch Console等で発行したコードを config に貼るだけ。
+    """
+    v = cfg.get("verification") or {}
+    PUBLIC.mkdir(parents=True, exist_ok=True)
+
+    # Google: google{hex}.html という名前のファイルを置く
+    g = v.get("google_site_verification") or ""
+    if g:
+        # filename自動推測 or 完全指定
+        if g.endswith(".html"):
+            fn = g
+            body = f"google-site-verification: {g}"
+        else:
+            fn = f"google{g}.html"
+            body = f"google-site-verification: {fn}"
+        (PUBLIC / fn).write_text(body, encoding="utf-8")
+        log.info(f"GSC verification file: {fn}")
+
+    # Bing: BingSiteAuth.xml
+    b = v.get("bing_msvalidate") or ""
+    if b:
+        xml = f'<?xml version="1.0"?>\n<users><user>{b}</user></users>'
+        (PUBLIC / "BingSiteAuth.xml").write_text(xml, encoding="utf-8")
+        log.info("Bing verification file: BingSiteAuth.xml")
+
+    # Yandex: yandex_xxx.html
+    y = v.get("yandex_verification") or ""
+    if y:
+        if y.endswith(".html"):
+            fn = y
+        else:
+            fn = f"yandex_{y[:16]}.html"
+        (PUBLIC / fn).write_text(
+            f'<html><head><meta name="yandex-verification" content="{y}"/></head></html>',
+            encoding="utf-8")
+        log.info(f"Yandex verification file: {fn}")
 
 
 def ensure_indexnow_key(cfg: dict) -> str | None:
@@ -493,11 +608,13 @@ def main() -> int:
     (PUBLIC / "feed.json").write_text(render_feed(cfg, products), encoding="utf-8")
     (PUBLIC / "sitemap.xml").write_text(render_sitemap(cfg, list(by_genre.keys())), encoding="utf-8")
     (PUBLIC / "robots.txt").write_text(render_robots(cfg), encoding="utf-8")
+    (PUBLIC / "rss.xml").write_text(render_rss(cfg, products, load_campaigns()), encoding="utf-8")
     # 404.html for GitHub Pages (redirect to index)
     (PUBLIC / "404.html").write_text(
         '<!DOCTYPE html><meta http-equiv="refresh" content="0;url=/aff-hub/">'
         '<title>Redirecting...</title><a href="/aff-hub/">Go home</a>',
         encoding="utf-8")
+    write_verification_files(cfg)
     log.info(f"wrote public/ (today={today})")
     push_to_threads_queue(cfg, products)
     ping_search_engines(cfg, list(by_genre.keys()))

@@ -1,36 +1,44 @@
 {
-  "updated_at": "2026-05-16T21:19:16.954146+09:00",
+  "updated_at": "2026-05-16T22:20:13.159237+09:00",
   "campaigns": [
     {
       "id": "timesale-daily",
       "name": "24時間限定タイムセール",
-      "start_jst": null,
-      "end_jst": null,
-      "summary": "毎朝10時更新の日替わり特別価格。ショップ最安値以下の商品が毎日登場。",
+      "start_jst": "2026-05-16 10:00",
+      "end_jst": "2026-05-17 09:59",
+      "summary": "毎朝10時更新・日替わり特別価格。ショップ最安値より安価な商品が毎日登場",
       "url": "https://event.rakuten.co.jp/bargain/timesale/"
-    },
-    {
-      "id": "five-zero-day",
-      "name": "5と0のつく日 ポイント4倍",
-      "start_jst": "2026-05-20 00:00",
-      "end_jst": "2026-05-20 23:59",
-      "summary": "エントリー＆楽天カード利用でポイント+3倍。毎月5・10・15・20・25・30日開催。",
-      "url": "https://event.rakuten.co.jp/campaign/card/pointday/"
     },
     {
       "id": "kattara-bai-20260516",
       "name": "勝ったら倍キャンペーン",
       "start_jst": "2026-05-16 00:00",
       "end_jst": "2026-05-16 23:59",
-      "summary": "楽天イーグルス・ヴィッセル神戸の勝利翌日にエントリーでポイント2〜3倍。",
+      "summary": "楽天イーグルス・ヴィッセル神戸の勝利翌日にポイント2〜3倍。1注文1,000円以上対象",
       "url": "https://event.rakuten.co.jp/campaign/sports/"
+    },
+    {
+      "id": "kansha-day-20260518",
+      "name": "ご愛顧感謝デー",
+      "start_jst": "2026-05-18 00:00",
+      "end_jst": "2026-05-18 23:59",
+      "summary": "毎月18日はエントリーでポイント最大4倍",
+      "url": "https://event.rakuten.co.jp/"
+    },
+    {
+      "id": "five-zero-day-20260520",
+      "name": "5と0のつく日ポイント4倍",
+      "start_jst": "2026-05-20 00:00",
+      "end_jst": "2026-05-20 23:59",
+      "summary": "毎月5・10・15・20・25・30日に楽天カード利用でポイント4倍。エントリー必要",
+      "url": "https://event.rakuten.co.jp/campaign/card/pointday/"
     },
     {
       "id": "super-deal",
       "name": "楽天スーパーDEAL",
       "start_jst": null,
       "end_jst": null,
-      "summary": "楽天会員限定、対象商品購入で最大50%ポイント還元。エントリー不要で常時開催。",
+      "summary": "楽天会員限定・最大50%ポイント還元。対象商品購入の翌日にポイントバック。常時開催",
       "url": "https://event.rakuten.co.jp/superdeal/"
     }
   ]
