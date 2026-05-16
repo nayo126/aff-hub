@@ -327,6 +327,82 @@ def render_feed(cfg: dict, products: list[dict]) -> str:
 
 THREADS_QUEUE_URL = "https://threads-api-app.onrender.com/api/claude-posts/bulk"
 
+# IndexNow: Bing/Yandex/Seznam等が共通で受け付ける即時インデックスAPI
+# https://www.indexnow.org/documentation
+# 64桁 hex key (英数字) を docs/{key}.txt に置き、APIにURLリストを POST する
+INDEXNOW_ENDPOINT = "https://api.indexnow.org/IndexNow"
+
+
+def _generate_indexnow_key() -> str:
+    """初回のみ key を生成、以後は永続。"""
+    import secrets
+    return secrets.token_hex(32)  # 64桁hex
+
+
+def ensure_indexnow_key(cfg: dict) -> str | None:
+    """IndexNow key を取得or生成し、PUBLIC/{key}.txt に書く。"""
+    state_dir = DATA
+    state_dir.mkdir(parents=True, exist_ok=True)
+    key_file = state_dir / "indexnow_key.txt"
+    if key_file.exists():
+        key = key_file.read_text(encoding="utf-8").strip()
+    else:
+        key = _generate_indexnow_key()
+        key_file.write_text(key, encoding="utf-8")
+        log.info(f"generated new IndexNow key: {key[:8]}...")
+    # 公開側にも置く（owner検証用）
+    PUBLIC.mkdir(parents=True, exist_ok=True)
+    (PUBLIC / f"{key}.txt").write_text(key, encoding="utf-8")
+    return key
+
+
+def ping_search_engines(cfg: dict, genre_slugs: list[str]) -> None:
+    """IndexNow API に新URL一覧を送信。Google sitemap ping もあわせて。"""
+    base = cfg["site"].get("base_url", "").rstrip("/")
+    host = base.replace("https://", "").replace("http://", "").split("/")[0]
+    today = jst_today()
+
+    # 送る URL リスト（メインページ + 今日の daily + 全 genre）
+    urls = [f"{base}/", f"{base}/daily/{today}.html"]
+    for slug in genre_slugs:
+        urls.append(f"{base}/genre/{slug}.html")
+
+    # 重複防止: 1日1回まで
+    state_file = DATA / "indexnow_sent.json"
+    sent: dict = {}
+    if state_file.exists():
+        try:
+            sent = json.loads(state_file.read_text(encoding="utf-8"))
+        except Exception:
+            sent = {}
+    if sent.get(today):
+        log.info(f"indexnow already sent today ({today})")
+        return
+
+    key = ensure_indexnow_key(cfg)
+    payload = {
+        "host": host,
+        "key": key,
+        "keyLocation": f"{base}/{key}.txt",
+        "urlList": urls,
+    }
+    body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    req = urllib.request.Request(
+        INDEXNOW_ENDPOINT, data=body, method="POST",
+        headers={"Content-Type": "application/json; charset=utf-8"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=20) as r:
+            log.info(f"indexnow rc={r.status}  urls={len(urls)}")
+    except Exception as e:
+        log.warning(f"indexnow ping failed: {e}")
+
+    # Google sitemap ping (公式は2023年に廃止だが、Search Console webhookは別)
+    # → Bing経由のIndexNowで十分なのでGoogle pingはskip
+    sent[today] = True
+    state_file.write_text(json.dumps(sent, ensure_ascii=False, indent=2),
+                          encoding="utf-8")
+
 
 def push_to_threads_queue(cfg: dict, products: list[dict]) -> None:
     """その日の daily ページ URL とトップ3を Threads キューに投入。"""
@@ -424,6 +500,7 @@ def main() -> int:
         encoding="utf-8")
     log.info(f"wrote public/ (today={today})")
     push_to_threads_queue(cfg, products)
+    ping_search_engines(cfg, list(by_genre.keys()))
     return 0
 
 
