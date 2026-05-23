@@ -57,6 +57,33 @@ def _truncate(s: str, n: int) -> str:
     return s if len(s) <= n else s[: n - 1].rstrip() + "…"
 
 
+def _aff_hub_rakuten_id() -> str:
+    """MONETIZATION_IDS.json の routing に従って aff-hub 用の楽天IDを解決。
+    別アカウントID (secondary 等) を aff-hub だけに割り当てられる。"""
+    import sys
+    sys.path.insert(0, "/Users/tsukaking/.claude/lib")
+    try:
+        from rakuten_id_router import get_rakuten_id
+        return get_rakuten_id("aff-hub") or ""
+    except Exception:
+        # フォールバック: MIDS を直接読む
+        try:
+            mids = json.loads((Path.home() / "MONETIZATION_IDS.json").read_text(encoding="utf-8"))
+            r = mids.get("rakuten_affiliate") or {}
+            return (r.get("ids") or {}).get("main") or r.get("affiliate_id") or ""
+        except Exception:
+            return ""
+
+
+def _rewrap_affiliate(raw_item_url: str, aff_id: str) -> str:
+    """生の楽天商品URLを aff-hub 用アフィIDでラップ。"""
+    import urllib.parse
+    if not aff_id or aff_id == "TODO":
+        return raw_item_url
+    encoded = urllib.parse.quote(raw_item_url, safe="")
+    return f"https://hb.afl.rakuten.co.jp/hgc/{aff_id}/?pc={encoded}"
+
+
 def load_latest_products(cfg: dict) -> list[dict]:
     pdir = Path(cfg["data_sources"]["rakuten_products_dir"])
     if not pdir.exists():
@@ -66,11 +93,16 @@ def load_latest_products(cfg: dict) -> list[dict]:
     if not files:
         return []
     latest = json.loads(files[-1].read_text(encoding="utf-8"))
+    aff_id = _aff_hub_rakuten_id()
     out: list[dict] = []
     for slug, g in latest.get("genres", {}).items():
         for it in g.get("items", []):
             it["_genre"] = slug
             it["_genre_name"] = g.get("name", slug)
+            # pin-money 継承ではなく aff-hub 自身の routing IDで再ラップ
+            raw = it.get("url") or ""
+            if raw:
+                it["affiliate_url"] = _rewrap_affiliate(raw, aff_id)
             out.append(it)
     # レビュー件数で並べ替え（人気優先）
     out.sort(key=lambda x: x.get("review_count", 0), reverse=True)
